@@ -15,11 +15,23 @@ workflows:
           cd ios
           pod install
       - name: Imzasiz iOS derlemesi al
-        script: flutter build ios --release --no-codesign
+        script: |
+          flutter build ios --release --no-codesign --config-only
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios_derived \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
       - name: IPA paketini olustur
         script: |
+          APP_PATH=$(find build/ios_derived/Build/Products/Release-iphoneos -name "Runner.app" -maxdepth 1 | head -n 1)
+          echo "Found Runner.app at: $APP_PATH"
           mkdir -p build/ios/ipa/Payload
-          cp -r build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cp -r "$APP_PATH" build/ios/ipa/Payload/
           cd build/ios/ipa
           zip -r Plakao.ipa Payload
     artifacts:
