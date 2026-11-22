@@ -19,7 +19,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   final _picker = ImagePicker();
 
   // Model hazir oldugunda burayi gercek servis sinifiyla degistirin.
-  final PlateRecognizerService _recognizer = OnnxOcrPlateRecognizerService();
+  final PlateRecognizerService _recognizer = MlKitPlateRecognizerService();
 
   final _plateController = TextEditingController();
   final _db = DatabaseService.instance;
