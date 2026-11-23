@@ -1,10 +1,11 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/campaign.dart';
 import '../models/vehicle.dart';
 import 'messaging_service.dart';
 
-/// Tum yerel (sqflite) veritabani islemlerini tek noktadan yonetir.
+/// Tüm yerel (sqflite) veritabanı işlemlerini tek noktadan yönetir.
 class DatabaseService {
   DatabaseService._internal();
   static final DatabaseService instance = DatabaseService._internal();
@@ -23,9 +24,10 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 1,
+      // v2: kampanyalar tablosu eklendi (eski düz-metin kampanya sistemi
+      // yerine, tarih aralığı destekli gerçek kayıt tablosu).
+      version: 2,
       onCreate: (db, version) async {
-        // Daimi musteri eslemesi: plaka -> telefon.
         await db.execute('''
           CREATE TABLE customers (
             plate TEXT PRIMARY KEY,
@@ -34,7 +36,6 @@ class DatabaseService {
           )
         ''');
 
-        // Gunluk/aktif kuyruk kayitlari.
         await db.execute('''
           CREATE TABLE queue_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,16 +46,37 @@ class DatabaseService {
             notifiedAt TEXT
           )
         ''');
+
+        await _createCampaignsTable(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createCampaignsTable(db);
+        }
       },
     );
   }
 
-  /// Plakadaki bosluk ve ozel karakterleri temizleyip buyuk harfe cevirir.
+  Future<void> _createCampaignsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT,
+        startDate TEXT,
+        endDate TEXT,
+        active INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+  }
+
+  /// Plakadaki boşluk ve özel karakterleri temizleyip büyük harfe çevirir.
   String normalizePlate(String raw) {
     return raw.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '').trim();
   }
 
-  // ---------- Customers (daimi musteri plaka -> telefon eslesmesi) ----------
+  // ---------- Customers (daimi müşteri plaka -> telefon eşlemesi) ----------
 
   Future<Customer?> findCustomerByPlate(String plate) async {
     final db = await database;
@@ -88,7 +110,40 @@ class DatabaseService {
     );
   }
 
-  // ---------- Queue (aktif kuyruk / gunluk akis) ----------
+  Future<List<Customer>> getAllCustomers() async {
+    final db = await database;
+    final rows = await db.query('customers', orderBy: 'createdAt DESC');
+    return rows.map(Customer.fromMap).toList();
+  }
+
+  /// Rehber ekranı için: her müşterinin kaç kez geldiğini ve son ziyaretini
+  /// queue_entries geçmişinden hesaplar.
+  Future<List<CustomerVisitInfo>> getCustomerDirectory() async {
+    final db = await database;
+    final customers = await getAllCustomers();
+    final result = <CustomerVisitInfo>[];
+
+    for (final c in customers) {
+      final rows = await db.query(
+        'queue_entries',
+        where: 'plate = ?',
+        whereArgs: [c.plate],
+        orderBy: 'createdAt DESC',
+      );
+      result.add(CustomerVisitInfo(
+        customer: c,
+        visitCount: rows.length,
+        lastVisit: rows.isNotEmpty
+            ? DateTime.parse(rows.first['createdAt'] as String)
+            : c.createdAt,
+      ));
+    }
+
+    result.sort((a, b) => b.lastVisit.compareTo(a.lastVisit));
+    return result;
+  }
+
+  // ---------- Queue (aktif kuyruk / günlük akış) ----------
 
   Future<int> addToQueue({
     required String plate,
@@ -125,10 +180,7 @@ class DatabaseService {
 
   Future<List<QueueEntry>> getAllQueueEntries() async {
     final db = await database;
-    final rows = await db.query(
-      'queue_entries',
-      orderBy: 'createdAt DESC',
-    );
+    final rows = await db.query('queue_entries', orderBy: 'createdAt DESC');
     return rows.map(QueueEntry.fromMap).toList();
   }
 
@@ -175,5 +227,44 @@ class DatabaseService {
   Future<void> deleteEntry(int id) async {
     final db = await database;
     await db.delete('queue_entries', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ---------- Campaigns (yeni, tarih aralığı destekli) ----------
+
+  Future<int> addCampaign(Campaign c) async {
+    final db = await database;
+    final map = c.toMap()..remove('id');
+    return db.insert('campaigns', map);
+  }
+
+  Future<void> updateCampaign(Campaign c) async {
+    final db = await database;
+    await db.update('campaigns', c.toMap(), where: 'id = ?', whereArgs: [c.id]);
+  }
+
+  Future<void> deleteCampaign(int id) async {
+    final db = await database;
+    await db.delete('campaigns', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Campaign>> getAllCampaigns() async {
+    final db = await database;
+    final rows = await db.query('campaigns', orderBy: 'createdAt DESC');
+    return rows.map(Campaign.fromMap).toList();
+  }
+
+  /// Aynı anda sadece bir kampanya "aktif" olabilir; yenisini aktif
+  /// yaparken diğerlerini otomatik pasife çeker.
+  Future<void> setActiveCampaign(int id) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.update('campaigns', {'active': 0});
+      await txn.update('campaigns', {'active': 1}, where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
+  Future<void> deactivateAllCampaigns() async {
+    final db = await database;
+    await db.update('campaigns', {'active': 0});
   }
 }

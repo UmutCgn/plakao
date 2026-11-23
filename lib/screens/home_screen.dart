@@ -6,9 +6,12 @@ import '../models/vehicle.dart';
 import '../services/database_service.dart';
 import '../services/messaging_service.dart';
 import '../services/settings_service.dart';
+import 'campaigns_screen.dart';
 import 'capture_screen.dart';
+import 'experimental_screen.dart';
+import 'rehber_screen.dart';
 import 'settings_screen.dart';
-import 'package:plakao/screens/stats_screen.dart';
+import 'stats_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -52,8 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _refresh();
   }
 
-  /// Tek tusla bildirim: once WhatsApp dener, acilmazsa SMS'e duser.
-  /// [forceSms] true verilirse dogrudan SMS acar.
+  /// Tek tuşla bildirim: önce WhatsApp dener, açılmazsa SMS'e düşer.
   Future<void> _notifyAndDeliver(QueueEntry entry, {bool forceSms = false}) async {
     String? phone = entry.phone;
 
@@ -143,27 +145,98 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final shopName = SettingsService.instance.current.shopName;
+    final experimentalOn =
+        SettingsService.instance.current.experimentalFeatureEnabled;
 
     return Scaffold(
       appBar: AppBar(
         title: Text('$shopName - Kuyruk'),
         centerTitle: true,
         actions: [
-          IconButton(
-            onPressed: _openSettings,
-            icon: const Icon(Icons.settings),
-            tooltip: 'Ayarlar',
-          ),
-          IconButton(
-            onPressed: () {
-            Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const StatsScreen()),
-            );
-            },
-            icon: const Icon(Icons.bar_chart),
-            tooltip: 'Raporlar ve Kampanyalar',
-          ),
+          // Deneysel özellik kapalıyken bu menü HİÇ görünmez; Ayarlar'dan
+          // açıldığı anda belirir, kapatılınca kaybolur.
+          if (experimentalOn)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'Deneysel Özellikler',
+              onSelected: (v) {
+                if (v == 'experimental') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ExperimentalScreen()),
+                  );
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'experimental',
+                  child: Text('🧪 Akıllı Talep Tahmini'),
+                ),
+              ],
+            ),
         ],
+      ),
+      drawer: Drawer(
+        child: SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              DrawerHeader(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Text(
+                    shopName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Ayarlar'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openSettings();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bar_chart),
+                title: const Text('İstatistikler'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const StatsScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.campaign),
+                title: const Text('Kampanyalar'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CampaignsScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.contacts),
+                title: const Text('Rehber'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const RehberScreen()),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       ),
       body: FutureBuilder<List<QueueEntry>>(
         future: _queueFuture,
@@ -178,7 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return RefreshIndicator(
             onRefresh: () async => _refresh(),
             child: ListView.separated(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
               itemCount: queue.length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
@@ -194,6 +267,8 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         },
       ),
+      // "Plaka Al" butonu artık ortada (ne sağda ne solda).
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCapture,
         icon: const Icon(Icons.camera_alt),
@@ -239,6 +314,7 @@ class _QueueCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final timeStr = DateFormat('HH:mm').format(entry.createdAt);
     final statusInfo = _statusInfo(entry.status);
+    final hasPhone = entry.phone != null && entry.phone!.isNotEmpty;
 
     return Card(
       elevation: 1,
@@ -283,13 +359,18 @@ class _QueueCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Text(
                         'Giriş: $timeStr',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
-                        ),
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
                       ),
                     ],
                   ),
+                  if (!hasPhone)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        '⚠ Telefon yok',
+                        style: TextStyle(fontSize: 11, color: Colors.orange),
+                      ),
+                    ),
                 ],
               ),
             ),

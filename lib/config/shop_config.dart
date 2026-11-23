@@ -1,7 +1,8 @@
+import '../services/campaign_service.dart';
 import '../services/settings_service.dart';
 
-/// Dukkan ayarlari. Varsayilan degerler uygulama ilk acildiginda kullanilir,
-/// Ayarlar ekranindan kaydedildikce canli olarak guncellenir.
+/// Dükkan ayarları. Varsayılan değerler uygulama ilk açıldığında kullanılır,
+/// Ayarlar ekranından kaydedildikçe canlı olarak güncellenir.
 class ShopConfig {
   static const String defaultShopName = 'Plakao Oto Yıkama';
   static const String defaultShopWhatsAppNumber = '905434989299';
@@ -23,38 +24,45 @@ class ShopConfig {
     return saved.isNotEmpty ? saved : defaultShopName;
   }
 
-  /// Dukkanin WhatsApp/SMS alabilen numarasi (905xxxxxxxxx).
+  /// Dükkanın WhatsApp/SMS alabilen numarası (905xxxxxxxxx).
   static String get shopWhatsAppNumber {
     final saved = SettingsService.instance.current.ownerPhone.trim();
     return saved.isNotEmpty ? saved : defaultShopWhatsAppNumber;
   }
 
   static String _render(String template, String plate) {
-    final current = SettingsService.instance.current;
-    final activeCampaign = current.activeCampaign.trim();
+    // ÖNEMLİ DÜZELTME: eski kodda '\nKampanya: \$activeCampaign' yazıyordu.
+    // Dart'ta '\$' kaçışlı (escaped) dolar işaretidir; bu satır değişkeni
+    // interpolate ETMİYOR, olduğu gibi "$activeCampaign" kelimesini
+    // basıyordu. Kampanyalar hiçbir zaman gerçek metinleriyle müşteriye
+    // gitmiyordu. Artık CampaignService'ten (tarih aralığı farkında)
+    // geçerli kampanya alınıp düzgün interpolate ediliyor.
+    final effective = CampaignService.instance.effective;
+    final campaignText = effective?.description.trim() ?? '';
     final campaignLine =
-        activeCampaign.isNotEmpty ? '\nKampanya: \$activeCampaign' : '';
+        campaignText.isNotEmpty ? '\nKampanya: $campaignText' : '';
 
     return template
         .replaceAll('{plate}', plate.trim().toUpperCase())
         .replaceAll('{shop}', shopName)
-        .replaceAll('{campaign}', activeCampaign)
+        .replaceAll('{campaign}', campaignText)
         .replaceAll('{campaignLine}', campaignLine);
   }
 
-  /// Musteri ilk kez QR okuttugunda, kendi telefonundan dukkana atacagi hazir mesaj.
+  /// Müşteri ilk kez QR okuttuğunda, kendi telefonundan dükkana atacağı
+  /// hazır mesaj.
   static String firstContactMessage(String plate) {
     final tpl = SettingsService.instance.current.firstContactTemplate.trim();
     return _render(tpl.isNotEmpty ? tpl : defaultFirstContactTemplate, plate);
   }
 
-  /// Numara girisinden sonra musteriye ilk bilgilendirme mesaji.
+  /// Numara girişinden sonra müşteriye ilk bilgilendirme mesajı.
   static String welcomeMessage(String plate) {
     final tpl = SettingsService.instance.current.welcomeTemplate.trim();
     return _render(tpl.isNotEmpty ? tpl : defaultWelcomeTemplate, plate);
   }
 
-  /// Yikama tamamlandiginda musteriye gonderilecek hazir mesaj.
+  /// Yıkama tamamlandığında müşteriye gönderilecek hazır mesaj.
   static String readyMessage(String plate) {
     final tpl = SettingsService.instance.current.messageTemplate.trim();
     return _render(tpl.isNotEmpty ? tpl : defaultReadyTemplate, plate);

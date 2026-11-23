@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-
+import 'services/campaign_service.dart';
 import 'screens/home_screen.dart';
 import 'services/settings_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SettingsService.instance.load();
+  await CampaignService.instance.load();
   runApp(const PlakaoApp());
 }
 

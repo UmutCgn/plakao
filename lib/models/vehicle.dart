@@ -72,3 +72,17 @@ class Customer {
         createdAt: DateTime.parse(map['createdAt'] as String),
       );
 }
+
+/// Rehber ekranı için: bir müşterinin kaç kez geldiğini ve en son ne zaman
+/// geldiğini queue_entries geçmişinden türetilmiş haliyle taşır.
+class CustomerVisitInfo {
+  final Customer customer;
+  final int visitCount;
+  final DateTime lastVisit;
+
+  const CustomerVisitInfo({
+    required this.customer,
+    required this.visitCount,
+    required this.lastVisit,
+  });
+}

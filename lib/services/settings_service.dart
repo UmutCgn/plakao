@@ -12,9 +12,23 @@ class AppSettings {
   final String firstContactTemplate;
   final String welcomeTemplate;
   final String messageTemplate;
-  final String activeCampaign;
-  final List<String> campaigns;
   final double plateConfThreshold;
+
+  /// Plaka OCR sonucunun "İL KODU + HARFLER + SAYI" formatına zorlanıp
+  /// zorlanmayacağı. Kapalıyken ham temizlenmiş metin plaka alanına yazılır
+  /// (model test ederken random/eksik sonuçları görmek için kullanışlıdır).
+  final bool strictPlateFormat;
+
+  /// Deneysel özellik anahtarı. Açıkken ana ekranın sağ üstünde ⋮ menüsü
+  /// belirir ve "Akıllı Talep Tahmini" sayfasına erişim verir; kapatılınca
+  /// menü tamamen gizlenir.
+  final bool experimentalFeatureEnabled;
+
+  /// Deneysel "Akıllı Talep Tahmini" özelliğinin hava durumu sorgusu için
+  /// kullandığı dükkan konumu. Varsayılan İstanbul'dur; Ayarlar ekranından
+  /// değiştirilebilir.
+  final double shopLat;
+  final double shopLon;
 
   const AppSettings({
     this.shopName = ShopConfig.defaultShopName,
@@ -22,9 +36,11 @@ class AppSettings {
     this.firstContactTemplate = ShopConfig.defaultFirstContactTemplate,
     this.welcomeTemplate = ShopConfig.defaultWelcomeTemplate,
     this.messageTemplate = ShopConfig.defaultReadyTemplate,
-    this.activeCampaign = '',
-    this.campaigns = const [],
     this.plateConfThreshold = 0.25,
+    this.strictPlateFormat = true,
+    this.experimentalFeatureEnabled = false,
+    this.shopLat = 41.0082,
+    this.shopLon = 28.9784,
   });
 
   AppSettings copyWith({
@@ -33,9 +49,11 @@ class AppSettings {
     String? firstContactTemplate,
     String? welcomeTemplate,
     String? messageTemplate,
-    String? activeCampaign,
-    List<String>? campaigns,
     double? plateConfThreshold,
+    bool? strictPlateFormat,
+    bool? experimentalFeatureEnabled,
+    double? shopLat,
+    double? shopLon,
   }) {
     return AppSettings(
       shopName: shopName ?? this.shopName,
@@ -43,9 +61,12 @@ class AppSettings {
       firstContactTemplate: firstContactTemplate ?? this.firstContactTemplate,
       welcomeTemplate: welcomeTemplate ?? this.welcomeTemplate,
       messageTemplate: messageTemplate ?? this.messageTemplate,
-      activeCampaign: activeCampaign ?? this.activeCampaign,
-      campaigns: campaigns ?? this.campaigns,
       plateConfThreshold: plateConfThreshold ?? this.plateConfThreshold,
+      strictPlateFormat: strictPlateFormat ?? this.strictPlateFormat,
+      experimentalFeatureEnabled:
+          experimentalFeatureEnabled ?? this.experimentalFeatureEnabled,
+      shopLat: shopLat ?? this.shopLat,
+      shopLon: shopLon ?? this.shopLon,
     );
   }
 
@@ -55,17 +76,14 @@ class AppSettings {
         'firstContactTemplate': firstContactTemplate,
         'welcomeTemplate': welcomeTemplate,
         'messageTemplate': messageTemplate,
-        'activeCampaign': activeCampaign,
-        'campaigns': campaigns,
         'plateConfThreshold': plateConfThreshold,
+        'strictPlateFormat': strictPlateFormat,
+        'experimentalFeatureEnabled': experimentalFeatureEnabled,
+        'shopLat': shopLat,
+        'shopLon': shopLon,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    final parsedCampaigns = ((json['campaigns'] as List?) ?? const [])
-        .map((e) => e.toString().trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-
     final rawPhone = (json['ownerPhone'] as String?) ?? '';
     final normalized = normalizeTrPhone(rawPhone);
 
@@ -87,11 +105,14 @@ class AppSettings {
           (json['messageTemplate'] as String?)?.trim().isNotEmpty == true
               ? (json['messageTemplate'] as String).trim()
               : ShopConfig.defaultReadyTemplate,
-      activeCampaign: (json['activeCampaign'] as String?)?.trim() ?? '',
-      campaigns: parsedCampaigns,
       plateConfThreshold:
           ((json['plateConfThreshold'] as num?)?.toDouble() ?? 0.25)
               .clamp(0.05, 0.90),
+      strictPlateFormat: (json['strictPlateFormat'] as bool?) ?? true,
+      experimentalFeatureEnabled:
+          (json['experimentalFeatureEnabled'] as bool?) ?? false,
+      shopLat: (json['shopLat'] as num?)?.toDouble() ?? 41.0082,
+      shopLon: (json['shopLon'] as num?)?.toDouble() ?? 28.9784,
     );
   }
 
@@ -99,7 +120,7 @@ class AppSettings {
     return ShopConfig.readyMessage(plate);
   }
 
-  /// Sadece gecerli 10 haneli TR cep numarasini 905xxxxxxxxx dondurur.
+  /// Sadece geçerli 10 haneli TR cep numarasını 905xxxxxxxxx döndürür.
   static String normalizeTrPhone(String raw) {
     var digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
     if (digits.isEmpty) return '';
@@ -168,11 +189,6 @@ class SettingsService {
       messageTemplate: settings.messageTemplate.trim().isEmpty
           ? ShopConfig.defaultReadyTemplate
           : settings.messageTemplate.trim(),
-      activeCampaign: settings.activeCampaign.trim(),
-      campaigns: settings.campaigns
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList(),
       plateConfThreshold: settings.plateConfThreshold.clamp(0.05, 0.90),
     );
 
