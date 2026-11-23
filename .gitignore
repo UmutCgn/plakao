@@ -9,4 +9,4 @@ build/
 lib/models/Plate_detect.onnx
 
 
-assets/models/*.tflite
+
