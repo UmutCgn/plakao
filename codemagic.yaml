@@ -8,12 +8,17 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      - name: Git LFS dosyalarini cek ve dogrula
+        script: |
+          git lfs install
+          git lfs pull
+          ls -lh assets/models/Plate_detect_float32.tflite
       - name: Flutter paketlerini indir
         script: flutter pub get
       - name: CocoaPods kurulumu
         script: |
           cd ios
-          pod install
+          pod install --repo-update
       - name: Imzasiz iOS derlemesi al
         script: |
           flutter build ios --release --no-codesign --config-only
