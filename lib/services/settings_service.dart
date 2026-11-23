@@ -116,8 +116,8 @@ class AppSettings {
     );
   }
 
-  String buildCompletionMessage(String plate) {
-    return ShopConfig.readyMessage(plate);
+  String buildCompletionMessage(String plate, {int visitCount = 0}) {
+    return ShopConfig.readyMessage(plate, visitCount: visitCount);
   }
 
   /// Sadece geçerli 10 haneli TR cep numarasını 905xxxxxxxxx döndürür.

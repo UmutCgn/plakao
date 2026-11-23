@@ -30,14 +30,14 @@ class ShopConfig {
     return saved.isNotEmpty ? saved : defaultShopWhatsAppNumber;
   }
 
-  static String _render(String template, String plate) {
+  static String _render(String template, String plate, {int visitCount = 0}) {
     // ÖNEMLİ DÜZELTME: eski kodda '\nKampanya: \$activeCampaign' yazıyordu.
     // Dart'ta '\$' kaçışlı (escaped) dolar işaretidir; bu satır değişkeni
     // interpolate ETMİYOR, olduğu gibi "$activeCampaign" kelimesini
     // basıyordu. Kampanyalar hiçbir zaman gerçek metinleriyle müşteriye
-    // gitmiyordu. Artık CampaignService'ten (tarih aralığı farkında)
-    // geçerli kampanya alınıp düzgün interpolate ediliyor.
-    final effective = CampaignService.instance.effective;
+    // gitmiyordu. Artık CampaignService'ten (tarih aralığı VE ziyaret
+    // sayısı farkında) geçerli kampanya alınıp düzgün interpolate ediliyor.
+    final effective = CampaignService.instance.effectiveForVisit(visitCount);
     final campaignText = effective?.description.trim() ?? '';
     final campaignLine =
         campaignText.isNotEmpty ? '\nKampanya: $campaignText' : '';
@@ -50,21 +50,25 @@ class ShopConfig {
   }
 
   /// Müşteri ilk kez QR okuttuğunda, kendi telefonundan dükkana atacağı
-  /// hazır mesaj.
-  static String firstContactMessage(String plate) {
+  /// hazır mesaj. [visitCount], bu aracın bu kayıtla birlikte kaçıncı
+  /// ziyareti olduğudur (sadakat kampanyası hesaplaması için).
+  static String firstContactMessage(String plate, {int visitCount = 0}) {
     final tpl = SettingsService.instance.current.firstContactTemplate.trim();
-    return _render(tpl.isNotEmpty ? tpl : defaultFirstContactTemplate, plate);
+    return _render(tpl.isNotEmpty ? tpl : defaultFirstContactTemplate, plate,
+        visitCount: visitCount);
   }
 
   /// Numara girişinden sonra müşteriye ilk bilgilendirme mesajı.
-  static String welcomeMessage(String plate) {
+  static String welcomeMessage(String plate, {int visitCount = 0}) {
     final tpl = SettingsService.instance.current.welcomeTemplate.trim();
-    return _render(tpl.isNotEmpty ? tpl : defaultWelcomeTemplate, plate);
+    return _render(tpl.isNotEmpty ? tpl : defaultWelcomeTemplate, plate,
+        visitCount: visitCount);
   }
 
   /// Yıkama tamamlandığında müşteriye gönderilecek hazır mesaj.
-  static String readyMessage(String plate) {
+  static String readyMessage(String plate, {int visitCount = 0}) {
     final tpl = SettingsService.instance.current.messageTemplate.trim();
-    return _render(tpl.isNotEmpty ? tpl : defaultReadyTemplate, plate);
+    return _render(tpl.isNotEmpty ? tpl : defaultReadyTemplate, plate,
+        visitCount: visitCount);
   }
 }

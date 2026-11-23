@@ -313,26 +313,66 @@ class _CaptureScreenState extends State<CaptureScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+              // Deklanşör (shutter) tarzı: çekim butonu tam ortada ve büyük,
+              // galeri butonu küçük ve kenarda. Sağdaki boş SizedBox, galeri
+              // butonuyla aynı genişlikte tutularak ortadaki büyük butonun
+              // satırda GERÇEKTEN ortalı görünmesini sağlar.
               Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: (_isProcessing || _previewImage != null)
-                          ? null
-                          : _capture,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Çek & Oku'),
+                  SizedBox(
+                    width: 64,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton.outlined(
+                          onPressed: _isProcessing ? null : _pickFromGallery,
+                          icon: const Icon(Icons.photo_library_outlined),
+                          iconSize: 24,
+                          tooltip: 'Galeriden Seç',
+                        ),
+                        const SizedBox(height: 2),
+                        const Text('Galeri', style: TextStyle(fontSize: 11)),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _isProcessing ? null : _pickFromGallery,
-                      icon: const Icon(Icons.photo_library),
-                      label: const Text('Galeri'),
+                  const SizedBox(width: 24),
+                  GestureDetector(
+                    onTap: (_isProcessing || _previewImage != null)
+                        ? null
+                        : _capture,
+                    child: Container(
+                      width: 78,
+                      height: 78,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: (_isProcessing || _previewImage != null)
+                            ? Colors.grey
+                            : Theme.of(context).colorScheme.primary,
+                        border: Border.all(color: Colors.white, width: 4),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black26, blurRadius: 10),
+                        ],
+                      ),
+                      child: _isProcessing
+                          ? const Padding(
+                              padding: EdgeInsets.all(22),
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 3,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.camera_alt,
+                              color: Colors.white,
+                              size: 34,
+                            ),
                     ),
                   ),
+                  const SizedBox(width: 24),
+                  const SizedBox(width: 64), // galeriyle simetrik boşluk
                 ],
               ),
               if (_previewImage != null)

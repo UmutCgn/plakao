@@ -259,89 +259,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           const SizedBox(height: 24),
-          Text(
-            'Plaka Tanıma',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Model TFLite formatına geçtiğinde burada hiçbir şeyi '
-            'değiştirmeniz gerekmez — eşik ve format kuralı otomatik '
-            'uygulanır (bkz. plate_recognizer_service.dart).',
-            style: TextStyle(fontSize: 12, color: Colors.black54),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Text('Güven Eşiği:'),
-              Expanded(
-                child: Slider(
-                  value: _confThreshold,
-                  min: 0.05,
-                  max: 0.90,
-                  divisions: 17,
-                  label: _confThreshold.toStringAsFixed(2),
-                  onChanged: (v) => setState(() => _confThreshold = v),
-                ),
+          // Eşik/slider/deneysel gibi nadiren dokunulan, kafa karıştırıcı
+          // ayarlar artık burada tek bir katlanabilir bölümde — ana ekran
+          // sade kalsın diye varsayılan olarak kapalı.
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                '⚙️ Gelişmiş Ayarlar',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              Text(_confThreshold.toStringAsFixed(2)),
-            ],
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Sıkı Format Kontrolü'),
-            subtitle: const Text(
-              'Açıkken sadece "İL KODU + HARF + SAYI" formatına uyan '
-              'sonuçlar plaka alanına yazılır (önerilir).',
-            ),
-            value: _strictFormat,
-            onChanged: (v) => setState(() => _strictFormat = v),
-          ),
-
-          const SizedBox(height: 24),
-          Text(
-            'Deneysel Özellik',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('🧪 Akıllı Talep Tahmini'),
-            subtitle: const Text(
-              'Açıkken ana ekranın sağ üstünde ⋮ menüsü belirir ve hava '
-              'durumu + geçmiş verilere göre basit bir talep tahmini sayfası '
-              'açar. Kapatınca menü tamamen gizlenir.',
-            ),
-            value: _experimentalOn,
-            onChanged: (v) => setState(() => _experimentalOn = v),
-          ),
-          if (_experimentalOn) ...[
-            const SizedBox(height: 8),
-            Row(
+              subtitle: const Text(
+                'Plaka tanıma hassasiyeti, deneysel özellik',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              childrenPadding: const EdgeInsets.only(bottom: 12),
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _latController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                    decoration: const InputDecoration(labelText: 'Dükkan Enlemi'),
-                  ),
+                const SizedBox(height: 4),
+                Text(
+                  'Plaka Tanıma',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _lonController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                    decoration: const InputDecoration(labelText: 'Dükkan Boylamı'),
-                  ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Model TFLite formatına geçtiğinde burada hiçbir şeyi '
+                  'değiştirmeniz gerekmez — eşik ve format kuralı otomatik '
+                  'uygulanır (bkz. plate_recognizer_service.dart).',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Text('Güven Eşiği:'),
+                    Expanded(
+                      child: Slider(
+                        value: _confThreshold,
+                        min: 0.05,
+                        max: 0.90,
+                        divisions: 17,
+                        label: _confThreshold.toStringAsFixed(2),
+                        onChanged: (v) => setState(() => _confThreshold = v),
+                      ),
+                    ),
+                    Text(_confThreshold.toStringAsFixed(2)),
+                  ],
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Sıkı Format Kontrolü'),
+                  subtitle: const Text(
+                    'Açıkken sadece "İL KODU + HARF + SAYI" formatına uyan '
+                    'sonuçlar plaka alanına yazılır (önerilir).',
+                  ),
+                  value: _strictFormat,
+                  onChanged: (v) => setState(() => _strictFormat = v),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Deneysel Özellik',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('🧪 Akıllı Talep Tahmini'),
+                  subtitle: const Text(
+                    'Açıkken sol menüde bu özelliğe erişim belirir; hava '
+                    'durumu + geçmiş verilere göre basit bir talep tahmini '
+                    'sayfası açar. Kapatınca menü öğesi tamamen gizlenir.',
+                  ),
+                  value: _experimentalOn,
+                  onChanged: (v) => setState(() => _experimentalOn = v),
+                ),
+                if (_experimentalOn) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _latController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true),
+                          decoration:
+                              const InputDecoration(labelText: 'Dükkan Enlemi'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _lonController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true),
+                          decoration:
+                              const InputDecoration(labelText: 'Dükkan Boylamı'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
-          ],
+          ),
 
           const SizedBox(height: 24),
           ElevatedButton.icon(

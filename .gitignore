@@ -7,6 +7,9 @@ build/
 .idea/
 
 lib/models/Plate_detect.onnx
+lib.zip
+assets/*.onnx
+assets/*.tflite
 
 
 

@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:url_launcher/url_launcher.dart';
 
 /// WhatsApp (wa.me) ve SMS (sms:) uzerinden hazir mesaj gonderme islemlerini
@@ -11,9 +13,14 @@ class MessagingService {
       digits = digits.substring(2);
     }
     if (digits.startsWith('0') && digits.length == 11) {
-      digits = '90\${digits.substring(1)}';
+      // ÖNEMLİ DÜZELTME: burada '\$' (kaçışlı/escaped dolar işareti)
+      // kullanılıyordu; bu Dart'ta değişkeni interpolate ETMEZ, olduğu gibi
+      // "90${digits.substring(1)}" metnini üretirdi. Sonuç: 0543xxxxxxx gibi
+      // standart girişlerde wa.me/sms linki geçersiz bir numarayla
+      // oluşuyor, WhatsApp/SMS açılmıyor ya da hatalı açılıyordu.
+      digits = '90${digits.substring(1)}';
     } else if (digits.length == 10 && digits.startsWith('5')) {
-      digits = '90\$digits';
+      digits = '90$digits';
     }
     return digits;
   }
@@ -32,7 +39,18 @@ class MessagingService {
 
   static Uri buildSmsUri(String phone, String message) {
     final clean = normalizePhone(phone);
-    return Uri.parse('sms:$clean?body=${Uri.encodeComponent(message)}');
+    // iOS 'sms:' şeması gövdeyi '&body=' ile, Android ise '?body=' ile
+    // bekler; yanlış ayraç kullanılırsa mesaj metni boş açılır. Platform
+    // tespiti başarısız olursa (ör. test ortamı) Android/varsayılan '?' ile
+    // devam edilir.
+    var useAmpersand = false;
+    try {
+      useAmpersand = Platform.isIOS;
+    } catch (_) {
+      useAmpersand = false;
+    }
+    final separator = useAmpersand ? '&' : '?';
+    return Uri.parse('sms:$clean${separator}body=${Uri.encodeComponent(message)}');
   }
 
   static Future<bool> sendWhatsApp(String phone, String message) async {

@@ -55,8 +55,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _refresh();
   }
 
-  /// Tek tuşla bildirim: önce WhatsApp dener, açılmazsa SMS'e düşer.
-  Future<void> _notifyAndDeliver(QueueEntry entry, {bool forceSms = false}) async {
+  /// Tek tuşla bildirim. İki ayrı buton (WhatsApp / SMS) üzerinden çağrılır;
+  /// [useWhatsApp] true ise WhatsApp, false ise SMS ile gönderir — kullanıcı
+  /// hangi kanalı seçtiyse o kesin olarak denenir (sessiz bir diğerine düşme
+  /// yoktur, çünkü seçim zaten kullanıcıya ait).
+  Future<void> _notifyAndDeliver(QueueEntry entry, {required bool useWhatsApp}) async {
     String? phone = entry.phone;
 
     if (phone == null || !MessagingService.isValidPhone(phone)) {
@@ -69,20 +72,28 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    // Sadakat/kampanya hesaplaması bu aracın şu ana kadarki ziyaret sayısına
+    // göre yapılır (ör. "her 6 yıkamada 1 ücretsiz").
+    final visitCount = await _db.getVisitCount(entry.plate);
+
     final settings = SettingsService.instance.current;
     final message = settings.messageTemplate.trim().isNotEmpty
-        ? settings.buildCompletionMessage(entry.plate)
-        : ShopConfig.readyMessage(entry.plate);
+        ? settings.buildCompletionMessage(entry.plate, visitCount: visitCount)
+        : ShopConfig.readyMessage(entry.plate, visitCount: visitCount);
 
-    final ok = forceSms
-        ? await MessagingService.sendSms(phone, message)
-        : await MessagingService.sendWhatsAppOrSms(phone, message);
+    final ok = useWhatsApp
+        ? await MessagingService.sendWhatsApp(phone, message)
+        : await MessagingService.sendSms(phone, message);
 
     if (!ok) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Mesaj uygulaması açılamadı. Numarayı kontrol edin.'),
+          SnackBar(
+            content: Text(
+              useWhatsApp
+                  ? 'WhatsApp açılamadı. Numarayı kontrol edin.'
+                  : 'SMS uygulaması açılamadı. Numarayı kontrol edin.',
+            ),
           ),
         );
       }
@@ -152,28 +163,6 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('$shopName - Kuyruk'),
         centerTitle: true,
-        actions: [
-          // Deneysel özellik kapalıyken bu menü HİÇ görünmez; Ayarlar'dan
-          // açıldığı anda belirir, kapatılınca kaybolur.
-          if (experimentalOn)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              tooltip: 'Deneysel Özellikler',
-              onSelected: (v) {
-                if (v == 'experimental') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ExperimentalScreen()),
-                  );
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: 'experimental',
-                  child: Text('🧪 Akıllı Talep Tahmini'),
-                ),
-              ],
-            ),
-        ],
       ),
       drawer: Drawer(
         child: SafeArea(
@@ -234,6 +223,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
+              // Deneysel özellik kapalıyken bu öğe HİÇ görünmez; Ayarlar >
+              // Gelişmiş Ayarlar'dan açıldığı anda belirir, kapatılınca
+              // kaybolur. Önceden sağ üstteki ⋮ menüsündeydi, artık sol
+              // menüde (three-dot kaldırıldı).
+              if (experimentalOn)
+                ListTile(
+                  leading: const Icon(Icons.science_outlined),
+                  title: const Text('🧪 Akıllı Talep Tahmini'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const ExperimentalScreen()),
+                    );
+                  },
+                ),
             ],
           ),
         ),
@@ -259,8 +263,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 return _QueueCard(
                   entry: entry,
                   onMarkReady: () => _markReady(entry),
-                  onNotify: () => _notifyAndDeliver(entry),
-                  onNotifySms: () => _notifyAndDeliver(entry, forceSms: true),
+                  onNotifyWhatsapp: () => _notifyAndDeliver(entry, useWhatsApp: true),
+                  onNotifySms: () => _notifyAndDeliver(entry, useWhatsApp: false),
                 );
               },
             ),
@@ -300,13 +304,13 @@ class _EmptyQueue extends StatelessWidget {
 class _QueueCard extends StatelessWidget {
   final QueueEntry entry;
   final VoidCallback onMarkReady;
-  final VoidCallback onNotify;
+  final VoidCallback onNotifyWhatsapp;
   final VoidCallback onNotifySms;
 
   const _QueueCard({
     required this.entry,
     required this.onMarkReady,
-    required this.onNotify,
+    required this.onNotifyWhatsapp,
     required this.onNotifySms,
   });
 
@@ -381,17 +385,35 @@ class _QueueCard extends StatelessWidget {
                 child: const Text('Hazır'),
               )
             else if (entry.status == QueueStatus.ready)
-              GestureDetector(
-                onLongPress: onNotifySms,
-                child: ElevatedButton(
-                  onPressed: onNotify,
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(110, 48),
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 132,
+                    height: 40,
+                    child: ElevatedButton.icon(
+                      onPressed: onNotifyWhatsapp,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                      ),
+                      icon: const Icon(Icons.chat, size: 18),
+                      label: const Text('WhatsApp'),
+                    ),
                   ),
-                  child: const Text('Bildir'),
-                ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 132,
+                    height: 40,
+                    child: OutlinedButton.icon(
+                      onPressed: onNotifySms,
+                      style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
+                      icon: const Icon(Icons.sms_outlined, size: 18),
+                      label: const Text('SMS'),
+                    ),
+                  ),
+                ],
               ),
           ],
         ),

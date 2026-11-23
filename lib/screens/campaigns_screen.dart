@@ -40,6 +40,9 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
   Future<void> _openEditor({Campaign? existing}) async {
     final titleCtrl = TextEditingController(text: existing?.title ?? '');
     final descCtrl = TextEditingController(text: existing?.description ?? '');
+    final visitThresholdCtrl = TextEditingController(
+      text: existing?.visitThreshold?.toString() ?? '',
+    );
     DateTime? start = existing?.startDate;
     DateTime? end = existing?.endDate;
 
@@ -117,6 +120,28 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                       child: const Text('Tarihleri Temizle (Süresiz)'),
                     ),
                   ),
+                const Divider(height: 24),
+                const Text(
+                  'Sadakat / Ziyaret Bazlı (opsiyonel)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Doldurulursa, bir araç tam olarak bu sayıda geldiğinde '
+                  '(ör. 6 → her 6. yıkamada) kampanya otomatik devreye girer. '
+                  'Boş bırakılırsa yukarıdaki tarih aralığı/aktif anahtarıyla '
+                  'çalışan klasik kampanya olur.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: visitThresholdCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Her kaç yıkamada bir',
+                    hintText: 'Örn: 6',
+                  ),
+                ),
               ],
             ),
           ),
@@ -136,6 +161,10 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
 
     if (saved != true) return;
 
+    final parsedThreshold = int.tryParse(visitThresholdCtrl.text.trim());
+    final visitThreshold =
+        (parsedThreshold != null && parsedThreshold > 0) ? parsedThreshold : null;
+
     if (existing == null) {
       await _svc.add(Campaign(
         title: titleCtrl.text.trim(),
@@ -143,6 +172,7 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
         startDate: start,
         endDate: end,
         createdAt: DateTime.now(),
+        visitThreshold: visitThreshold,
       ));
     } else {
       await _svc.update(existing.copyWith(
@@ -152,6 +182,8 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
         endDate: end,
         clearStartDate: start == null,
         clearEndDate: end == null,
+        visitThreshold: visitThreshold,
+        clearVisitThreshold: visitThreshold == null,
       ));
     }
     if (mounted) setState(() {});
@@ -193,13 +225,23 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                           children: [
                             Text(c.description),
                             const SizedBox(height: 4),
-                            Text(
-                              c.startDate == null && c.endDate == null
-                                  ? 'Süresiz'
-                                  : '${c.startDate != null ? DateFormat('dd.MM.yyyy').format(c.startDate!) : '...'} '
-                                      '→ ${c.endDate != null ? DateFormat('dd.MM.yyyy').format(c.endDate!) : '...'}',
-                              style: const TextStyle(fontSize: 12, color: Colors.black54),
-                            ),
+                            if (c.isVisitBased)
+                              Text(
+                                '🔁 Her ${c.visitThreshold}. yıkamada bir',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.deepPurple,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              )
+                            else
+                              Text(
+                                c.startDate == null && c.endDate == null
+                                    ? 'Süresiz'
+                                    : '${c.startDate != null ? DateFormat('dd.MM.yyyy').format(c.startDate!) : '...'} '
+                                        '→ ${c.endDate != null ? DateFormat('dd.MM.yyyy').format(c.endDate!) : '...'}',
+                                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                              ),
                             if (c.isEffective)
                               const Text(
                                 '✅ Şu an mesajlara ekleniyor',

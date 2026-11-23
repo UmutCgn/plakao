@@ -28,6 +28,25 @@ class CampaignService {
     return null;
   }
 
+  /// Belirli bir aracın ziyaret sayısına göre geçerli kampanyayı döner.
+  /// Öncelik sırası:
+  ///   1) Ziyaret-bazlı (visitThreshold'u olan) ve bu ziyaret sayısında TAM
+  ///      olarak "kazanılan" (ör. her 6 yıkamada 1) aktif bir kampanya varsa
+  ///      o döner — müşteri hak kazandığı anda bunu görür.
+  ///   2) Yoksa, klasik tarih aralıklı / süresiz, ziyaret sayısından bağımsız
+  ///      aktif bir kampanya (varsa) döner.
+  ///   3) Hiçbiri yoksa null.
+  Campaign? effectiveForVisit(int visitCount) {
+    for (final c in _campaigns) {
+      if (!c.active || !c.isCurrentlyValid) continue;
+      if (c.isVisitBased && c.matchesVisitCount(visitCount)) return c;
+    }
+    for (final c in _campaigns) {
+      if (c.isEffective && !c.isVisitBased) return c;
+    }
+    return null;
+  }
+
   Future<void> load() async {
     _campaigns = await _db.getAllCampaigns();
   }

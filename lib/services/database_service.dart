@@ -26,7 +26,9 @@ class DatabaseService {
       path,
       // v2: kampanyalar tablosu eklendi (eski düz-metin kampanya sistemi
       // yerine, tarih aralığı destekli gerçek kayıt tablosu).
-      version: 2,
+      // v3: campaigns.visitThreshold eklendi — ziyaret sayısına göre
+      // (ör. "her 6 yıkamada 1 ücretsiz") sadakat kampanyaları için.
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE customers (
@@ -53,6 +55,18 @@ class DatabaseService {
         if (oldVersion < 2) {
           await _createCampaignsTable(db);
         }
+        if (oldVersion < 3) {
+          // campaigns tablosu v2'de zaten yoksa _createCampaignsTable yeni
+          // kolonla birlikte oluşturur; v2'den geliyorsa ALTER TABLE gerekir.
+          try {
+            await db.execute(
+              'ALTER TABLE campaigns ADD COLUMN visitThreshold INTEGER',
+            );
+          } catch (_) {
+            // Kolon zaten varsa (yeni kurulum _createCampaignsTable'dan
+            // geçtiyse) sqflite hata fırlatır; görmezden gel.
+          }
+        }
       },
     );
   }
@@ -66,7 +80,8 @@ class DatabaseService {
         startDate TEXT,
         endDate TEXT,
         active INTEGER NOT NULL DEFAULT 0,
-        createdAt TEXT NOT NULL
+        createdAt TEXT NOT NULL,
+        visitThreshold INTEGER
       )
     ''');
   }
@@ -141,6 +156,20 @@ class DatabaseService {
 
     result.sort((a, b) => b.lastVisit.compareTo(a.lastVisit));
     return result;
+  }
+
+  /// Bu plakanın queue_entries geçmişinde şu ana kadar kaç kaydı var.
+  /// Sadakat/kampanya mesajlarında "bu kaçıncı yıkama" hesabı için kullanılır.
+  Future<int> getVisitCount(String plate) async {
+    final db = await database;
+    final normalized = normalizePlate(plate);
+    if (normalized.isEmpty) return 0;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM queue_entries WHERE plate = ?',
+      [normalized],
+    );
+    final value = result.first['cnt'];
+    return value is int ? value : int.tryParse('$value') ?? 0;
   }
 
   // ---------- Queue (aktif kuyruk / günlük akış) ----------
