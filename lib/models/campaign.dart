@@ -107,3 +107,57 @@ class Campaign {
         visitThreshold: map['visitThreshold'] as int?,
       );
 }
+
+/// Hazır kampanya şablonu: Kampanyalar ekranındaki "Hazır Şablonlar"
+/// bölümünde tek dokunuşla düzenleyiciye aktarılır, kaydedilmeden önce
+/// değiştirilebilir.
+class CampaignTemplate {
+  final String title;
+  final String description;
+  final int? visitThreshold;
+
+  const CampaignTemplate({
+    required this.title,
+    required this.description,
+    this.visitThreshold,
+  });
+
+  static const List<CampaignTemplate> all = [
+    CampaignTemplate(
+      title: 'Her 5 Yıkamada 1 Ücretsiz',
+      description: '5. yıkamanız bizden hediye!',
+      visitThreshold: 5,
+    ),
+    CampaignTemplate(
+      title: 'Sadakat Kampanyası (Her 6 Yıkama)',
+      description: 'Her 6. yıkamada %100 indirim kazanırsınız.',
+      visitThreshold: 6,
+    ),
+    CampaignTemplate(
+      title: 'Yeni Müşteri İndirimi',
+      description: 'İlk yıkamanızda %20 indirim.',
+    ),
+    CampaignTemplate(
+      title: 'Hafta İçi Kampanyası',
+      description: 'Hafta içi yıkamalarda %15 indirim.',
+    ),
+    CampaignTemplate(
+      title: 'Yaz Kampanyası',
+      description: 'Dış yıkama + iç temizlik bir arada, kaçırmayın!',
+    ),
+  ];
+}
+
+/// Rehberdeki bir telefon numarasının (bir kişinin, birden fazla plakası
+/// olsa bile) kampanya takip görünümü için toplam ziyaret bilgisi.
+class PhoneCampaignProgress {
+  final String phone;
+  final List<String> plates;
+  final int visitCount;
+
+  const PhoneCampaignProgress({
+    required this.phone,
+    required this.plates,
+    required this.visitCount,
+  });
+}

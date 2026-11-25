@@ -19,6 +19,9 @@ class _StatsScreenState extends State<StatsScreen> {
 
   bool _loading = true;
   List<QueueEntry> _allEntries = const [];
+  double _todayRevenue = 0;
+  double _weekRevenue = 0;
+  double _monthRevenue = 0;
 
   @override
   void initState() {
@@ -29,9 +32,15 @@ class _StatsScreenState extends State<StatsScreen> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     final entries = await _db.getAllQueueEntries();
+    final todayRevenue = await _db.getTodayRevenue();
+    final weekRevenue = await _db.getWeekRevenue();
+    final monthRevenue = await _db.getMonthRevenue();
     if (!mounted) return;
     setState(() {
       _allEntries = entries;
+      _todayRevenue = todayRevenue;
+      _weekRevenue = weekRevenue;
+      _monthRevenue = monthRevenue;
       _loading = false;
     });
   }
@@ -123,6 +132,42 @@ class _StatsScreenState extends State<StatsScreen> {
                         title: 'Bu Ay',
                         value: '$_monthWashedCount',
                         color: Colors.deepOrange,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Ciro',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricCard(
+                        title: 'Bugün',
+                        value: '${_todayRevenue.toStringAsFixed(0)} ₺',
+                        color: Colors.green,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MetricCard(
+                        title: 'Son 7 Gün',
+                        value: '${_weekRevenue.toStringAsFixed(0)} ₺',
+                        color: Colors.blueGrey,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MetricCard(
+                        title: 'Bu Ay',
+                        value: '${_monthRevenue.toStringAsFixed(0)} ₺',
+                        color: Colors.brown,
                       ),
                     ),
                   ],

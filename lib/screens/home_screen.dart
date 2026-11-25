@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -5,6 +7,7 @@ import '../config/shop_config.dart';
 import '../models/vehicle.dart';
 import '../services/database_service.dart';
 import '../services/messaging_service.dart';
+import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import 'campaigns_screen.dart';
 import 'capture_screen.dart';
@@ -24,16 +27,69 @@ class _HomeScreenState extends State<HomeScreen> {
   final _db = DatabaseService.instance;
   late Future<List<QueueEntry>> _queueFuture;
 
+  /// DENEYSEL "⏱️ Akıllı Bekleme Tahmini" için geçmişten hesaplanan ortalama
+  /// yıkama süresi (dakika). Ayarlardan özellik kapalıysa kullanılmaz.
+  double _avgWashMinutes = 20;
+
+  /// "Araç Bekleme Süresi Uyarısı" için periyodik kontrol zamanlayıcısı.
+  Timer? _waitCheckTimer;
+
   @override
   void initState() {
     super.initState();
     _refresh();
+    // Uygulama açıkken her 30 saniyede bir kuyruğu kontrol edip, belirlenen
+    // süreden uzun bekleyen araç varsa bildirim gönderir. (Bkz. Ayarlar >
+    // Gelişmiş Ayarlar > Araç Bekleme Süresi Uyarısı.)
+    _waitCheckTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkWaitTimes(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _waitCheckTimer?.cancel();
+    super.dispose();
   }
 
   void _refresh() {
     setState(() {
       _queueFuture = _db.getActiveQueue();
     });
+    if (SettingsService.instance.current.smartWaitEstimateEnabled) {
+      _db.getAverageWashMinutes().then((value) {
+        if (mounted) setState(() => _avgWashMinutes = value);
+      });
+    }
+    _checkWaitTimes();
+  }
+
+  /// Kuyrukta (yıkanıyor durumunda) ayarlarda belirlenen süreden uzun
+  /// bekleyen araçlar için tek seferlik yerel bildirim gönderir. Aynı araç
+  /// için bildirim [QueueEntry.waitWarnedAt] ile işaretlenip tekrar atılmaz.
+  Future<void> _checkWaitTimes() async {
+    final settings = SettingsService.instance.current;
+    if (!settings.queueWaitWarningEnabled) return;
+
+    final threshold = Duration(minutes: settings.queueWaitWarningMinutes);
+    final queue = await _db.getActiveQueue();
+    final now = DateTime.now();
+
+    for (final entry in queue) {
+      if (entry.status != QueueStatus.inQueue) continue;
+      if (entry.waitWarnedAt != null) continue;
+
+      final waited = now.difference(entry.createdAt);
+      if (waited >= threshold) {
+        await NotificationService.instance.showWaitWarning(
+          entryId: entry.id!,
+          plate: entry.plate,
+          waitedMinutes: waited.inMinutes,
+        );
+        await _db.markWaitWarned(entry.id!);
+      }
+    }
   }
 
   Future<void> _openCapture() async {
@@ -55,6 +111,141 @@ class _HomeScreenState extends State<HomeScreen> {
     _refresh();
   }
 
+  /// "Ücret Belirle" butonu: hazır fiyat listesinden seçim ya da elle
+  /// girilen özel tutar. Her araç farklı fiyata yıkanabildiği için kayıt
+  /// bazında saklanır (bkz. QueueEntry.price / İstatistikler ekranı ciro).
+  Future<void> _setPrice(QueueEntry entry) async {
+    final presets = SettingsService.instance.current.pricePresets;
+    final customCtrl = TextEditingController(
+      text: entry.price != null ? entry.price!.toStringAsFixed(0) : '',
+    );
+
+    final result = await showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${entry.plate} - Ücret Belirle',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Hazır ücretlerden birine dokunun:',
+                style: TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+              const SizedBox(height: 14),
+              // Büyük, tek dokunuşla seçilebilir hazır ücret butonları.
+              // Küçük chip'lerin tıklanması zor olduğu için (özellikle
+              // dükkanda hızlı kullanımda) her biri tam genişlikte ve
+              // büyük punto ile gösterilir.
+              ...presets.map((p) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 64,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, p.price),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo.withValues(alpha: 0.08),
+                        foregroundColor: Colors.indigo,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            p.label,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${p.price.toStringAsFixed(0)} ₺',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 6),
+              const Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      'ya da özel ücret',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ),
+                  Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: customCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Özel Ücret (₺)',
+                        prefixIcon: Icon(Icons.payments_outlined),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 110,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final value = double.tryParse(
+                          customCtrl.text.trim().replaceAll(',', '.'),
+                        );
+                        if (value == null || value <= 0) return;
+                        Navigator.pop(ctx, value);
+                      },
+                      child: const Text('Kaydet'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (result == null) return;
+    await _db.setEntryPrice(entry.id!, result);
+    _refresh();
+  }
+
   /// Tek tuşla bildirim. İki ayrı buton (WhatsApp / SMS) üzerinden çağrılır;
   /// [useWhatsApp] true ise WhatsApp, false ise SMS ile gönderir — kullanıcı
   /// hangi kanalı seçtiyse o kesin olarak denenir (sessiz bir diğerine düşme
@@ -72,9 +263,12 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // Sadakat/kampanya hesaplaması bu aracın şu ana kadarki ziyaret sayısına
-    // göre yapılır (ör. "her 6 yıkamada 1 ücretsiz").
-    final visitCount = await _db.getVisitCount(entry.plate);
+    // Sadakat/kampanya hesaplaması artık TELEFON NUMARASI bazlı: bir kişinin
+    // birden fazla plakası olabileceği için ziyaret sayısı o numaranın tüm
+    // plakalardaki toplam yıkama sayısına göre hesaplanır (ör. "her 6
+    // yıkamada 1 ücretsiz").
+    final visitCount =
+        await _db.getVisitCountForEntry(plate: entry.plate, phone: phone);
 
     final settings = SettingsService.instance.current;
     final message = settings.messageTemplate.trim().isNotEmpty
@@ -252,6 +446,8 @@ class _HomeScreenState extends State<HomeScreen> {
           if (queue.isEmpty) {
             return const _EmptyQueue();
           }
+          final estimateEnabled =
+              SettingsService.instance.current.smartWaitEstimateEnabled;
           return RefreshIndicator(
             onRefresh: () async => _refresh(),
             child: ListView.separated(
@@ -260,11 +456,28 @@ class _HomeScreenState extends State<HomeScreen> {
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final entry = queue[index];
+                // Bu aracın önünde hala "yıkanıyor" durumunda kaç araç
+                // olduğu (⏱️ Akıllı Bekleme Tahmini için).
+                final aheadCount = queue
+                    .sublist(0, index)
+                    .where((e) => e.status == QueueStatus.inQueue)
+                    .length;
+                DateTime? estimatedReadyAt;
+                if (estimateEnabled && entry.status == QueueStatus.inQueue) {
+                  estimatedReadyAt = DateTime.now().add(
+                    Duration(
+                      minutes:
+                          (_avgWashMinutes * (aheadCount + 1)).round(),
+                    ),
+                  );
+                }
                 return _QueueCard(
                   entry: entry,
+                  estimatedReadyAt: estimatedReadyAt,
                   onMarkReady: () => _markReady(entry),
                   onNotifyWhatsapp: () => _notifyAndDeliver(entry, useWhatsApp: true),
                   onNotifySms: () => _notifyAndDeliver(entry, useWhatsApp: false),
+                  onSetPrice: () => _setPrice(entry),
                 );
               },
             ),
@@ -306,12 +519,19 @@ class _QueueCard extends StatelessWidget {
   final VoidCallback onMarkReady;
   final VoidCallback onNotifyWhatsapp;
   final VoidCallback onNotifySms;
+  final VoidCallback onSetPrice;
+
+  /// DENEYSEL "⏱️ Akıllı Bekleme Tahmini": açıksa ve araç hala kuyruktaysa
+  /// dolu, aksi halde null. HomeScreen tarafından hesaplanır.
+  final DateTime? estimatedReadyAt;
 
   const _QueueCard({
     required this.entry,
     required this.onMarkReady,
     required this.onNotifyWhatsapp,
     required this.onNotifySms,
+    required this.onSetPrice,
+    this.estimatedReadyAt,
   });
 
   @override
@@ -375,46 +595,112 @@ class _QueueCard extends StatelessWidget {
                         style: TextStyle(fontSize: 11, color: Colors.orange),
                       ),
                     ),
+                  // ⏱️ Akıllı Bekleme Tahmini (deneysel): kuyrukta önündeki
+                  // araç sayısı ve geçmiş ortalama yıkama süresine göre
+                  // tahmini hazır olma saati.
+                  if (estimatedReadyAt != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.timer_outlined,
+                              size: 13, color: Colors.black54),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Tahmini hazır: ${DateFormat('HH:mm').format(estimatedReadyAt!)}',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.black54,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
-            if (entry.status == QueueStatus.inQueue)
-              ElevatedButton(
-                onPressed: onMarkReady,
-                style: ElevatedButton.styleFrom(minimumSize: const Size(110, 48)),
-                child: const Text('Hazır'),
-              )
-            else if (entry.status == QueueStatus.ready)
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 132,
-                    height: 40,
-                    child: ElevatedButton.icon(
-                      onPressed: onNotifyWhatsapp,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.zero,
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // "Ücret Belirle" butonu: fiyat girilene kadar büyük ve
+                // belirgin; fiyat girilince aynı yerde seçilen ücreti
+                // gösteren bir butona dönüşür (tekrar dokunarak
+                // değiştirilebilir).
+                SizedBox(
+                  width: 140,
+                  height: 44,
+                  child: entry.price == null
+                      ? ElevatedButton.icon(
+                          onPressed: onSetPrice,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.zero,
+                            textStyle: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          icon: const Icon(Icons.price_change_outlined, size: 18),
+                          label: const Text('Ücret Belirle'),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: onSetPrice,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.indigo,
+                            side: const BorderSide(color: Colors.indigo),
+                            padding: EdgeInsets.zero,
+                            textStyle: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: Text('${entry.price!.toStringAsFixed(0)} ₺'),
+                        ),
+                ),
+                const SizedBox(height: 6),
+                if (entry.status == QueueStatus.inQueue)
+                  ElevatedButton(
+                    onPressed: onMarkReady,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(110, 48)),
+                    child: const Text('Hazır'),
+                  )
+                else if (entry.status == QueueStatus.ready)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 132,
+                        height: 40,
+                        child: ElevatedButton.icon(
+                          onPressed: onNotifyWhatsapp,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.zero,
+                          ),
+                          icon: const Icon(Icons.chat, size: 18),
+                          label: const Text('WhatsApp'),
+                        ),
                       ),
-                      icon: const Icon(Icons.chat, size: 18),
-                      label: const Text('WhatsApp'),
-                    ),
+                      const SizedBox(height: 6),
+                      SizedBox(
+                        width: 132,
+                        height: 40,
+                        child: OutlinedButton.icon(
+                          onPressed: onNotifySms,
+                          style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
+                          icon: const Icon(Icons.sms_outlined, size: 18),
+                          label: const Text('SMS'),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  SizedBox(
-                    width: 132,
-                    height: 40,
-                    child: OutlinedButton.icon(
-                      onPressed: onNotifySms,
-                      style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
-                      icon: const Icon(Icons.sms_outlined, size: 18),
-                      label: const Text('SMS'),
-                    ),
-                  ),
-                ],
-              ),
+              ],
+            ),
           ],
         ),
       ),

@@ -37,10 +37,29 @@ class ShopConfig {
     // basıyordu. Kampanyalar hiçbir zaman gerçek metinleriyle müşteriye
     // gitmiyordu. Artık CampaignService'ten (tarih aralığı VE ziyaret
     // sayısı farkında) geçerli kampanya alınıp düzgün interpolate ediliyor.
-    final effective = CampaignService.instance.effectiveForVisit(visitCount);
-    final campaignText = effective?.description.trim() ?? '';
-    final campaignLine =
-        campaignText.isNotEmpty ? '\nKampanya: $campaignText' : '';
+    //
+    // Kampanya takibi: artık birden fazla plakası olabilen bir müşteri için
+    // ilerleme (ör. "3/6 yıkama") telefon numarası bazlı visitCount ile
+    // hesaplanıp mesaja ekleniyor (bkz. DatabaseService.getVisitCountForEntry).
+    final progressCampaign = CampaignService.instance.activeVisitBasedCampaign;
+    final matched = CampaignService.instance.effectiveForVisit(visitCount);
+
+    String campaignText = '';
+    String campaignLine = '';
+
+    if (progressCampaign != null) {
+      final threshold = progressCampaign.visitThreshold!;
+      final isWin = visitCount > 0 && visitCount % threshold == 0;
+      final remainder = visitCount % threshold;
+      final current = isWin ? threshold : remainder;
+      campaignText = progressCampaign.description.trim();
+      campaignLine = campaignText.isNotEmpty ? '\nKampanya: $campaignText' : '';
+      campaignLine += '\nKampanya ilerlemeniz: $current/$threshold yıkama';
+      if (isWin) campaignLine += ' 🎉 Kampanyayı hak kazandınız!';
+    } else if (matched != null) {
+      campaignText = matched.description.trim();
+      campaignLine = campaignText.isNotEmpty ? '\nKampanya: $campaignText' : '';
+    }
 
     return template
         .replaceAll('{plate}', plate.trim().toUpperCase())

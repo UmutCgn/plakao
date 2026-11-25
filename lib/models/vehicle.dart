@@ -15,6 +15,18 @@ class QueueEntry {
   final DateTime createdAt;
   final DateTime? notifiedAt;
 
+  /// Bu araç için belirlenen yıkama ücreti. Her araç farklı fiyata
+  /// yıkanabildiği için kuyruktaki her kayda ayrı ayrı atanır (bkz.
+  /// home_screen.dart'taki "Ücret Belirle" butonu). Null ise henüz fiyat
+  /// girilmemiştir.
+  final double? price;
+
+  /// "Araç Bekleme Süresi Uyarısı" için: bu kayıt için uzun bekleme
+  /// bildirimi daha önce gönderildiyse zamanı burada tutulur. Null ise
+  /// henüz gönderilmemiştir. Aynı araç için bildirimin tekrar tekrar
+  /// atılmasını engeller (bkz. HomeScreen._checkWaitTimes).
+  final DateTime? waitWarnedAt;
+
   const QueueEntry({
     this.id,
     required this.plate,
@@ -22,7 +34,31 @@ class QueueEntry {
     this.status = QueueStatus.inQueue,
     required this.createdAt,
     this.notifiedAt,
+    this.price,
+    this.waitWarnedAt,
   });
+
+  QueueEntry copyWith({
+    int? id,
+    String? plate,
+    String? phone,
+    QueueStatus? status,
+    DateTime? createdAt,
+    DateTime? notifiedAt,
+    double? price,
+    DateTime? waitWarnedAt,
+  }) {
+    return QueueEntry(
+      id: id ?? this.id,
+      plate: plate ?? this.plate,
+      phone: phone ?? this.phone,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      notifiedAt: notifiedAt ?? this.notifiedAt,
+      price: price ?? this.price,
+      waitWarnedAt: waitWarnedAt ?? this.waitWarnedAt,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -32,6 +68,8 @@ class QueueEntry {
       'status': status.name,
       'createdAt': createdAt.toIso8601String(),
       'notifiedAt': notifiedAt?.toIso8601String(),
+      'price': price,
+      'waitWarnedAt': waitWarnedAt?.toIso8601String(),
     };
   }
 
@@ -45,6 +83,10 @@ class QueueEntry {
       notifiedAt: map['notifiedAt'] != null
           ? DateTime.parse(map['notifiedAt'] as String)
           : null,
+      price: (map['price'] as num?)?.toDouble(),
+      waitWarnedAt: map['waitWarnedAt'] != null
+          ? DateTime.parse(map['waitWarnedAt'] as String)
+          : null,
     );
   }
 }
@@ -54,22 +96,46 @@ class Customer {
   final String phone;
   final DateTime createdAt;
 
+  /// Opsiyonel müşteri adı. Rehber ekranından "Düzenle" ile girilebilir;
+  /// boşsa rehberde sadece plaka gösterilir.
+  final String? name;
+
   const Customer({
     required this.plate,
     required this.phone,
     required this.createdAt,
+    this.name,
   });
+
+  Customer copyWith({
+    String? plate,
+    String? phone,
+    DateTime? createdAt,
+    String? name,
+    bool clearName = false,
+  }) {
+    return Customer(
+      plate: plate ?? this.plate,
+      phone: phone ?? this.phone,
+      createdAt: createdAt ?? this.createdAt,
+      name: clearName ? null : (name ?? this.name),
+    );
+  }
 
   Map<String, dynamic> toMap() => {
         'plate': plate,
         'phone': phone,
         'createdAt': createdAt.toIso8601String(),
+        'name': name,
       };
 
   factory Customer.fromMap(Map<String, dynamic> map) => Customer(
         plate: map['plate'] as String,
         phone: map['phone'] as String,
         createdAt: DateTime.parse(map['createdAt'] as String),
+        name: (map['name'] as String?)?.trim().isNotEmpty == true
+            ? (map['name'] as String).trim()
+            : null,
       );
 }
 

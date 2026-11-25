@@ -47,6 +47,16 @@ class CampaignService {
     return null;
   }
 
+  /// Şu an aktif olan, ziyaret/sadakat bazlı kampanya (varsa). Kampanya
+  /// takibi ("3/6 yıkama") bunun üzerinden hesaplanır; klasik tarih
+  /// aralıklı kampanyalardan bağımsızdır.
+  Campaign? get activeVisitBasedCampaign {
+    for (final c in _campaigns) {
+      if (c.active && c.isCurrentlyValid && c.isVisitBased) return c;
+    }
+    return null;
+  }
+
   Future<void> load() async {
     _campaigns = await _db.getAllCampaigns();
   }

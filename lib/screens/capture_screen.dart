@@ -11,17 +11,6 @@ import '../services/plate_recognizer_service.dart';
 import '../services/settings_service.dart';
 import 'first_registration_screen.dart';
 
-/// Plaka okuma ekranı. Artık `image_picker` ile native kamera uygulamasını
-/// tam ekran açmak yerine `camera` paketiyle CANLI ÖNİZLEME gösterir ve
-/// ortada sabit bir rehber dikdörtgeni çizer. Kullanıcı plakayı bu
-/// dikdörtgenin içine hizalayıp çeker; biz de fotoğrafı TAM OLARAK bu
-/// dikdörtgenin oranına göre kırpıp 3x büyüterek OCR'a göndeririz. Bu,
-/// "rastgele yazılar okunuyor" sorununun en büyük kaynağı olan "tüm kare
-/// OCR'dan geçiyor" problemini çözer.
-///
-/// Galeri'den seçilen fotoğraflarda rehber dikdörtgeni olmadığı için tam
-/// kare OCR + format regex filtresiyle okunur (PlateRecognizerService zaten
-/// bunu strictFormat ile yapıyor).
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
 
@@ -33,6 +22,10 @@ class _CaptureScreenState extends State<CaptureScreen>
     with WidgetsBindingObserver {
   CameraController? _cameraController;
   bool _cameraReady = false;
+
+  double _currentZoom = 1.0;
+  double _minZoom = 1.0;
+  double _maxZoom = 1.0;
 
   final _picker = ImagePicker();
   late final PlateRecognizerService _recognizer = TFLitePlateRecognizerService(
@@ -47,9 +40,8 @@ class _CaptureScreenState extends State<CaptureScreen>
   bool _isProcessing = false;
   bool _isSubmitting = false;
 
-  // Rehber (ekrandaki kılavuz) dikdörtgeni: Türk plakası en/boy oranı ~4.6:1
-  static const double _guideWidthRatio = 0.82;
-  static const double _guideAspect = 4.6;
+  static const double _guideWidthRatio = 0.84;
+  static const double _guideAspect = 3.6;
 
   @override
   void initState() {
@@ -63,26 +55,56 @@ class _CaptureScreenState extends State<CaptureScreen>
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) return;
+
       final backCam = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
+
       final controller = CameraController(
         backCam,
         ResolutionPreset.high,
         enableAudio: false,
       );
+
       await controller.initialize();
+      final minZoom = await controller.getMinZoomLevel();
+      final maxZoom = await controller.getMaxZoomLevel();
+
       if (!mounted) {
         controller.dispose();
         return;
       }
+
+      final clampedMax = maxZoom > minZoom ? maxZoom : minZoom;
+      final initialZoom = 1.0.clamp(minZoom, clampedMax);
+
       setState(() {
         _cameraController = controller;
+        _minZoom = minZoom;
+        _maxZoom = clampedMax;
+        _currentZoom = initialZoom;
         _cameraReady = true;
       });
+
+      await controller.setZoomLevel(initialZoom);
     } catch (e) {
       debugPrint('Kamera başlatılamadı: $e');
+    }
+  }
+
+  Future<void> _setZoom(double zoom) async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final target = zoom.clamp(_minZoom, _maxZoom);
+    try {
+      await controller.setZoomLevel(target);
+      if (mounted) {
+        setState(() => _currentZoom = target);
+      }
+    } catch (e) {
+      debugPrint('Zoom ayarlanamadı: $e');
     }
   }
 
@@ -90,6 +112,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
+
     if (state == AppLifecycleState.inactive) {
       controller.dispose();
       setState(() {
@@ -127,12 +150,6 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
-  /// Ekrandaki rehber dikdörtgeninin oranını kullanarak çekilen fotoğrafı
-  /// kırpar ve 3x büyütür. NOT: Bazı cihazlarda kamera sensör döndürmesi
-  /// farklı davranabilir; sonuç ekrandaki kılavuzla tam örtüşmezse
-  /// `_guideWidthRatio` / `_guideAspect` değerlerini cihaza göre ince ayar
-  /// yapın. Kırpma başarısız olsa bile OCR tam kare üzerinde + format
-  /// regex'iyle çalışmaya devam eder (akış kilitlenmez).
   Future<File> _cropToGuide(File original) async {
     try {
       final bytes = await original.readAsBytes();
@@ -163,8 +180,10 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Future<void> _pickFromGallery() async {
-    final picked =
-        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
+    final picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 95,
+    );
     if (picked == null) return;
     setState(() => _isProcessing = true);
     await _runOcr(File(picked.path));
@@ -240,17 +259,18 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Plaka Oku')),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           child: Column(
             children: [
-              AspectRatio(
-                aspectRatio: 4 / 3,
+              Expanded(
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(20),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -261,44 +281,49 @@ class _CaptureScreenState extends State<CaptureScreen>
                         FittedBox(
                           fit: BoxFit.cover,
                           child: SizedBox(
-                            width: _cameraController!.value.previewSize?.height ?? 100,
-                            height: _cameraController!.value.previewSize?.width ?? 100,
+                            width:
+                                _cameraController!.value.previewSize?.height ??
+                                    100,
+                            height:
+                                _cameraController!.value.previewSize?.width ??
+                                    100,
                             child: CameraPreview(_cameraController!),
                           ),
                         )
                       else
                         const Center(
-                          child: CircularProgressIndicator(color: Colors.white54),
-                        ),
-                      if (_previewImage == null)
-                        Center(
-                          child: FractionallySizedBox(
-                            widthFactor: _guideWidthRatio,
-                            heightFactor:
-                                (_guideWidthRatio / _guideAspect) * (3 / 4),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: Colors.amberAccent,
-                                  width: 3,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
+                          child: CircularProgressIndicator(
+                            color: Colors.white54,
                           ),
                         ),
                       if (_previewImage == null)
-                        const Positioned(
-                          bottom: 10,
-                          left: 0,
-                          right: 0,
-                          child: Text(
-                            'Plakayı çerçeve içine hizalayın',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                        _ModernPlateGuideOverlay(
+                          widthRatio: _guideWidthRatio,
+                          aspectRatio: _guideAspect,
+                        ),
+                      if (_previewImage == null)
+                        Positioned(
+                          bottom: 14,
+                          left: 24,
+                          right: 24,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'Plakayı çerçeve içine hizalayın',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -306,88 +331,138 @@ class _CaptureScreenState extends State<CaptureScreen>
                         Container(
                           color: Colors.black45,
                           child: const Center(
-                            child: CircularProgressIndicator(color: Colors.white),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 18),
-              // Deklanşör (shutter) tarzı: çekim butonu tam ortada ve büyük,
-              // galeri butonu küçük ve kenarda. Sağdaki boş SizedBox, galeri
-              // butonuyla aynı genişlikte tutularak ortadaki büyük butonun
-              // satırda GERÇEKTEN ortalı görünmesini sağlar.
+              if (_previewImage == null &&
+                  _cameraReady &&
+                  _maxZoom > _minZoom) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.zoom_out,
+                      size: 18,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    Expanded(
+                      child: Slider(
+                        value: _currentZoom.clamp(_minZoom, _maxZoom),
+                        min: _minZoom,
+                        max: _maxZoom,
+                        onChanged: _setZoom,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 42,
+                      child: Text(
+                        '${_currentZoom.toStringAsFixed(1)}x',
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [1.0, 2.0, 3.0]
+                      .where((z) => z >= _minZoom && z <= _maxZoom)
+                      .map(
+                        (preset) => ChoiceChip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text('${preset.toStringAsFixed(0)}x'),
+                          selected: (_currentZoom - preset).abs() < 0.15,
+                          onSelected: (_) => _setZoom(preset),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+              const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   SizedBox(
-                    width: 64,
+                    width: 56,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton.outlined(
                           onPressed: _isProcessing ? null : _pickFromGallery,
                           icon: const Icon(Icons.photo_library_outlined),
-                          iconSize: 24,
+                          iconSize: 20,
+                          visualDensity: VisualDensity.compact,
                           tooltip: 'Galeriden Seç',
                         ),
-                        const SizedBox(height: 2),
-                        const Text('Galeri', style: TextStyle(fontSize: 11)),
+                        const Text(
+                          'Galeri',
+                          style: TextStyle(fontSize: 10),
+                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 24),
+                  const SizedBox(width: 20),
                   GestureDetector(
                     onTap: (_isProcessing || _previewImage != null)
                         ? null
                         : _capture,
                     child: Container(
-                      width: 78,
-                      height: 78,
+                      width: 54,
+                      height: 54,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: (_isProcessing || _previewImage != null)
                             ? Colors.grey
-                            : Theme.of(context).colorScheme.primary,
-                        border: Border.all(color: Colors.white, width: 4),
+                            : colorScheme.primary,
+                        border: Border.all(color: Colors.white, width: 3),
                         boxShadow: const [
-                          BoxShadow(color: Colors.black26, blurRadius: 10),
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 8,
+                          ),
                         ],
                       ),
                       child: _isProcessing
                           ? const Padding(
-                              padding: EdgeInsets.all(22),
+                              padding: EdgeInsets.all(15),
                               child: CircularProgressIndicator(
                                 color: Colors.white,
-                                strokeWidth: 3,
+                                strokeWidth: 2.5,
                               ),
                             )
                           : const Icon(
                               Icons.camera_alt,
                               color: Colors.white,
-                              size: 34,
+                              size: 24,
                             ),
                     ),
                   ),
-                  const SizedBox(width: 24),
-                  const SizedBox(width: 64), // galeriyle simetrik boşluk
+                  const SizedBox(width: 20),
+                  const SizedBox(width: 56),
                 ],
               ),
               if (_previewImage != null)
                 TextButton.icon(
                   onPressed: _isProcessing ? null : _retake,
-                  icon: const Icon(Icons.refresh),
+                  icon: const Icon(Icons.refresh, size: 18),
                   label: const Text('Tekrar Çek'),
                 ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               TextField(
                 controller: _plateController,
                 textAlign: TextAlign.center,
                 textCapitalization: TextCapitalization.characters,
                 style: const TextStyle(
-                  fontSize: 28,
+                  fontSize: 26,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
                 ),
@@ -397,10 +472,10 @@ class _CaptureScreenState extends State<CaptureScreen>
                 ),
                 onSubmitted: (_) => _continue(),
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                height: 52,
+                height: 50,
                 child: ElevatedButton(
                   onPressed: _isSubmitting ? null : _continue,
                   child: const Text('Devam Et'),
@@ -411,5 +486,133 @@ class _CaptureScreenState extends State<CaptureScreen>
         ),
       ),
     );
+  }
+}
+
+class _ModernPlateGuideOverlay extends StatelessWidget {
+  final double widthRatio;
+  final double aspectRatio;
+
+  const _ModernPlateGuideOverlay({
+    required this.widthRatio,
+    required this.aspectRatio,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final boxWidth = constraints.maxWidth * widthRatio;
+        final boxHeight = (boxWidth / aspectRatio).clamp(
+          44.0,
+          constraints.maxHeight * 0.45,
+        );
+
+        return Center(
+          child: SizedBox(
+            width: boxWidth,
+            height: boxHeight,
+            child: CustomPaint(
+              painter: _CornerBracketsPainter(
+                color: Colors.amberAccent,
+                strokeWidth: 3.0,
+                bracketLength: 18.0,
+                radius: 10.0,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CornerBracketsPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  final double bracketLength;
+  final double radius;
+
+  const _CornerBracketsPainter({
+    required this.color,
+    required this.strokeWidth,
+    required this.bracketLength,
+    required this.radius,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fillPaint = Paint()
+      ..color = color.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Offset.zero & size,
+        Radius.circular(radius),
+      ),
+      fillPaint,
+    );
+
+    final borderPaint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final w = size.width;
+    final h = size.height;
+    final len = mathMin(bracketLength, mathMin(w, h) * 0.45);
+    final r = mathMin(radius, len * 0.6);
+
+    // Sol üst
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, len)
+        ..lineTo(0, r)
+        ..quadraticBezierTo(0, 0, r, 0)
+        ..lineTo(len, 0),
+      borderPaint,
+    );
+
+    // Sağ üst
+    canvas.drawPath(
+      Path()
+        ..moveTo(w - len, 0)
+        ..lineTo(w - r, 0)
+        ..quadraticBezierTo(w, 0, w, r)
+        ..lineTo(w, len),
+      borderPaint,
+    );
+
+    // Sağ alt
+    canvas.drawPath(
+      Path()
+        ..moveTo(w, h - len)
+        ..lineTo(w, h - r)
+        ..quadraticBezierTo(w, h, w - r, h)
+        ..lineTo(w - len, h),
+      borderPaint,
+    );
+
+    // Sol alt
+    canvas.drawPath(
+      Path()
+        ..moveTo(len, h)
+        ..lineTo(r, h)
+        ..quadraticBezierTo(0, h, 0, h - r)
+        ..lineTo(0, h - len),
+      borderPaint,
+    );
+  }
+
+  double mathMin(double a, double b) => a < b ? a : b;
+
+  @override
+  bool shouldRepaint(covariant _CornerBracketsPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.bracketLength != bracketLength ||
+        oldDelegate.radius != radius;
   }
 }
